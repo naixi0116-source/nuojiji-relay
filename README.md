@@ -5,9 +5,29 @@
 把「调用 AI 生成」从手机搬到一个**永远在线的后端**。这样你切后台、锁屏、被系统杀进程，
 这次 AI 回复也会在服务端跑完，等你回来时消息已经在那儿了 —— 不再需要和系统抢「保活」。
 
-> **自带后端 (BYOB)**：你 fork 这个仓库、部署自己的实例、填自己的 AI key，
+> **自带后端 (BYOB)**：你部署自己的实例、填自己的 AI key，
 > 在糯叽机 APP 里指向自己的后端 URL。**糯叽机作者的服务器不碰你的任何数据或 key。**
 > 这和 APP 本身「自带 API key (BYOK)」的理念一致。
+
+---
+
+## 🚀 一键部署（推荐，零命令行）
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/wcl20071005/nuojiji-relay)
+
+**三步搞定（全程网页点击，不用装任何东西）：**
+
+1. 点上面的 **Deploy to Cloudflare** 按钮 → 用 Cloudflare 账号登录（没有就免费注册）
+2. 在部署页：
+   - **RELAY_SECRET** 填一个你自己定的密码（随便一串字符，等下 App 里要填一样的）
+   - 其他留空即可（KV 存储会自动创建；PWA 推送密钥后端会自动生成；iOS 推送默认走糯叽机中转）
+   - 点 **Deploy / 部署**
+3. 部署完拿到网址 `https://nuojiji-relay.xxx.workers.dev` → 打开糯叽机 App → 设置 → API 设置 → **云端中继**：
+   - **中继地址** = 那个网址
+   - **中继密钥** = 你刚填的 RELAY_SECRET
+   - 打开开关 → 点「测试连接」变绿 → 完成 ✅
+
+> 想要更省钱/无 CPU 时长限制 → 见下面 VPS/Docker。绝大多数人用一键部署就够。
 
 ---
 
@@ -31,7 +51,7 @@
 
 ---
 
-## 部署方式一：Cloudflare Workers（推荐，免费额度大）
+## 进阶：命令行部署 Cloudflare Workers（懂技术的才需要，一般用上面的一键部署）
 
 ```bash
 git clone <你 fork 的仓库>

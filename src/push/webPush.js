@@ -32,16 +32,54 @@ function concatBytes(...arrs) {
     return out;
 }
 
-export function getVapidPublicKey(env) {
-    return env?.VAPID_PUBLIC_KEY || (typeof process !== 'undefined' ? process.env?.VAPID_PUBLIC_KEY : '') || '';
-}
+// VAPID 密钥来源优先级：环境变量 > KV 自动生成（一键部署零操作）> 内存生成（Node 无 KV 时）。
+// 自动生成：VAPID 本质是一对 EC P-256 密钥，用 Web Crypto 现生成、裸 base64url 存 KV(`vapid:keys`)，之后复用。
+const VAPID_KV_KEY = 'vapid:keys';
+let _memVapid = null; // Node 无 KV 时的进程内缓存
 
-function getVapid(env) {
+function envVapid(env) {
     const pub = env?.VAPID_PUBLIC_KEY || (typeof process !== 'undefined' ? process.env?.VAPID_PUBLIC_KEY : '');
     const priv = env?.VAPID_PRIVATE_KEY || (typeof process !== 'undefined' ? process.env?.VAPID_PRIVATE_KEY : '');
+    if (pub && priv) {
+        const subject = env?.VAPID_SUBJECT || (typeof process !== 'undefined' ? process.env?.VAPID_SUBJECT : '') || 'mailto:relay@example.com';
+        return { pub, priv, subject };
+    }
+    return null;
+}
+
+// 现生成一对 VAPID 密钥（裸格式：pub=65B 04||x||y base64url，priv=32B d base64url）
+async function generateVapidPair() {
+    const pair = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign']);
+    const rawPub = new Uint8Array(await crypto.subtle.exportKey('raw', pair.publicKey)); // 65B
+    const jwk = await crypto.subtle.exportKey('jwk', pair.privateKey);
+    return { pub: bytesToB64url(rawPub), priv: jwk.d }; // jwk.d 已是 base64url 的 32B 私钥
+}
+
+// 取（或自动生成）VAPID。env.OUTBOX 是 KV（Workers）；Node 无 KV 用内存缓存。
+async function getVapid(env) {
+    const fromEnv = envVapid(env);
+    if (fromEnv) return fromEnv;
     const subject = env?.VAPID_SUBJECT || (typeof process !== 'undefined' ? process.env?.VAPID_SUBJECT : '') || 'mailto:relay@example.com';
-    if (!pub || !priv) return null;
-    return { pub, priv, subject };
+
+    const kv = env?.OUTBOX;
+    if (kv && typeof kv.get === 'function') {
+        const raw = await kv.get(VAPID_KV_KEY);
+        if (raw) {
+            try { const k = JSON.parse(raw); if (k.pub && k.priv) return { ...k, subject }; } catch { /* regenerate */ }
+        }
+        const gen = await generateVapidPair();
+        await kv.put(VAPID_KV_KEY, JSON.stringify(gen));
+        return { ...gen, subject };
+    }
+
+    // Node 无 KV：进程内缓存（重启会换密钥，已订阅需重订；建议 Node 部署仍配 env VAPID）
+    if (!_memVapid) _memVapid = await generateVapidPair();
+    return { ..._memVapid, subject };
+}
+
+export async function getVapidPublicKey(env) {
+    const v = await getVapid(env);
+    return v?.pub || '';
 }
 
 // 把裸 EC 私钥 (32B d) + 公钥 (65B 04||x||y) 导入成可签名的 CryptoKey（JWK 方式）
@@ -126,7 +164,7 @@ async function encryptPayload(plaintext, subscription) {
  * 返回 { ok, gone, reason }。gone:true 表示订阅失效（410/404），调用方应删除。
  */
 export async function sendWebPush(env, subscription, payload) {
-    const vapid = getVapid(env);
+    const vapid = await getVapid(env);
     if (!vapid) return { ok: false, gone: false, reason: 'vapid-not-configured' };
     if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
         return { ok: false, gone: true, reason: 'invalid-subscription' };

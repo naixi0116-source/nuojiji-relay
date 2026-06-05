@@ -162,7 +162,7 @@ export function createApp() {
     });
 
     app.get('/api/push/vapid-key', async (c) => {
-        const publicKey = getVapidPublicKey(c.env);
+        const publicKey = await getVapidPublicKey(c.env);
         if (!publicKey) return c.json({ error: 'VAPID not configured' }, 503);
         return c.json({ publicKey });
     });
